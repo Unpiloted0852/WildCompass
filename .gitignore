@@ -17,3 +17,4 @@ keystore.properties
 *.jks
 secrets.properties
 .kotlin
+/release
