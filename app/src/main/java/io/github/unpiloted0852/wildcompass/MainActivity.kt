@@ -24,6 +24,7 @@ import android.os.Vibrator
 import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -138,6 +139,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        // A compass is read at a glance while walking or driving: keep the screen on for as
+        // long as the app is in front. The system takes over again once it is left.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         loadSettings()

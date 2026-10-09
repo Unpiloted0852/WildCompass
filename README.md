@@ -19,6 +19,7 @@ Coffee: https://ko-fi.com/unpiloted0852
   shells, plants, fungi; and any time, past year, past month or past week.
 - **Next** moves on to the next-nearest record, **Back** returns.
 - **Open record** opens the original observation page; **Map** opens the spot in a maps app.
+- The screen stays on while the app is open.
 - Tap the photo to see it full screen: pinch or double-tap to zoom, swipe for the record's
   other photos.
 

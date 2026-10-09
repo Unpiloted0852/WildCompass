@@ -7,6 +7,7 @@ import android.graphics.drawable.ColorDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -84,6 +85,8 @@ object PhotoViewer {
         }
         dialog.setContentView(root)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.BLACK))
+        // The viewer is a window of its own, so it has to ask to keep the screen on too.
+        dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         dialog.show()
     }
 
