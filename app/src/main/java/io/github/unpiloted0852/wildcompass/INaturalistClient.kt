@@ -12,6 +12,7 @@ import java.util.Locale
  */
 object INaturalistClient {
     private const val PER_PAGE = 200
+    private const val MAX_PHOTOS = 12
 
     /** Records with a stated position error above this are too vague to point at. */
     private const val MAX_ACCURACY_METERS = 500
@@ -62,9 +63,26 @@ object INaturalistClient {
         val lat = coords.optDouble(1)
         if (lat.isNaN() || lon.isNaN()) return null
 
-        val photo = o.optJSONArray("photos")?.optJSONObject(0) ?: return null
-        // The API hands out the 75 px "square" rendition; the others share its path.
-        val square = photo.str("url") ?: return null
+        val photos = ArrayList<Photo>()
+        val photoArray = o.optJSONArray("photos")
+        if (photoArray != null) {
+            for (i in 0 until minOf(photoArray.length(), MAX_PHOTOS)) {
+                val p = photoArray.optJSONObject(i) ?: continue
+                // The API hands out the 75 px "square" rendition; the others share its path.
+                val square = p.str("url") ?: continue
+                val medium = square.replace("/square.", "/medium.")
+                photos.add(
+                    Photo(
+                        url = medium,
+                        fullUrls = listOf(
+                            square.replace("/square.", "/original."), square.replace("/square.", "/large."), medium
+                        ),
+                        credit = p.str("attribution"),
+                    )
+                )
+            }
+        }
+        if (photos.isEmpty()) return null
         val taxon = o.optJSONObject("taxon")
         val user = o.optJSONObject("user")
         val id = o.optLong("id")
@@ -76,9 +94,7 @@ object INaturalistClient {
             lon = lon,
             commonName = taxon?.str("preferred_common_name") ?: o.str("species_guess"),
             scientificName = taxon?.str("name"),
-            photoUrl = square.replace("/square.", "/medium."),
-            photoLargeUrl = square.replace("/square.", "/large."),
-            photoCredit = photo.str("attribution"),
+            photos = photos,
             observedOn = o.str("observed_on"),
             observer = user?.str("name") ?: user?.str("login"),
             place = o.str("place_guess"),

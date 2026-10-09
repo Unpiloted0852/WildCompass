@@ -217,6 +217,19 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/tvPhotoCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|start"
+                    android:layout_margin="10dp"
+                    android:background="@drawable/bg_badge"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="4dp"
+                    android:textColor="@color/text_primary"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <TextView
                     android:id="@+id/tvBadge"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

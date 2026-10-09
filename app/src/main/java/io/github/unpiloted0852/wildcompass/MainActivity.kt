@@ -2,7 +2,6 @@ package io.github.unpiloted0852.wildcompass
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.SharedPreferences
@@ -72,6 +71,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private val updater by lazy { AppUpdater(this) }
     private lateinit var tvUpdate: TextView
+    private var askedForNotifications = false
     private lateinit var chipRow: LinearLayout
     private lateinit var btnRecency: TextView
     private lateinit var viewRing: View
@@ -87,6 +87,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var tvName: TextView
     private lateinit var tvSci: TextView
     private lateinit var tvBadge: TextView
+    private lateinit var tvPhotoCount: TextView
     private lateinit var tvMeta: TextView
     private lateinit var tvCredit: TextView
 
@@ -158,6 +159,18 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             tvUpdate.visibility = View.VISIBLE
             tvUpdate.setOnClickListener {
                 if (busy) return@setOnClickListener
+                // The update closes the app, and Android only lets it offer to reopen through
+                // a notification. Ask once; the update goes ahead on the next tap either way.
+                if (UpdateReceiver.needsNotification && !UpdateReceiver.canNotify(this@MainActivity) &&
+                    !askedForNotifications
+                ) {
+                    askedForNotifications = true
+                    ActivityCompat.requestPermissions(
+                        this@MainActivity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS
+                    )
+                    tvUpdate.text = "Tap again to install v${release.versionName}."
+                    return@setOnClickListener
+                }
                 busy = true
                 lifecycleScope.launch {
                     val error = updater.downloadAndInstall(release) { pct ->
@@ -218,6 +231,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         tvName = findViewById(R.id.tvName)
         tvSci = findViewById(R.id.tvSci)
         tvBadge = findViewById(R.id.tvBadge)
+        tvPhotoCount = findViewById(R.id.tvPhotoCount)
         tvMeta = findViewById(R.id.tvMeta)
         tvCredit = findViewById(R.id.tvCredit)
 
@@ -241,7 +255,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         btnNext.setOnClickListener { skipTarget() }
         btnBack.setOnClickListener { unskip() }
         tvStatus.setOnClickListener { onStatusTapped() }
-        ivPhoto.setOnClickListener { target?.let { showFullPhoto(it) } }
+        ivPhoto.setOnClickListener {
+            target?.let { PhotoViewer.show(this, it.photos, it.commonName ?: it.scientificName ?: "Observation") }
+        }
         findViewById<View>(R.id.btnOpen).setOnClickListener { target?.let { openUrl(it.recordUrl) } }
         findViewById<View>(R.id.btnMap).setOnClickListener { target?.let { openMap(it) } }
     }
@@ -330,27 +346,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     .setTitle("WildCompass ${BuildConfig.VERSION_NAME}")
                     .setMessage(R.string.about_text)
                     .setPositiveButton("OK", null)
+                    .setNeutralButton("Buy me a coffee") { _, _ -> openUrl(KOFI_URL) }
                     .show()
             }
             .show()
-    }
-
-    private fun showFullPhoto(o: Observation) {
-        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
-        val image = ImageView(this).apply {
-            setBackgroundColor(Color.BLACK)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            contentDescription = "Full-size photo. Tap to close."
-            setOnClickListener { dialog.dismiss() }
-        }
-        dialog.setContentView(image)
-        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.BLACK))
-        image.load(o.photoLargeUrl) {
-            // Show the card's copy straight away while the larger one arrives.
-            placeholderMemoryCacheKey(o.photoUrl)
-            listener(onError = { _, _ -> image.load(o.photoUrl) })
-        }
-        dialog.show()
     }
 
     private fun openUrl(url: String) {
@@ -386,12 +385,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         ActivityCompat.requestPermissions(
             this,
             arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-            1
+            REQUEST_LOCATION
         )
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_LOCATION) return
         if (hasLocationPermission()) {
             state = State.WAITING_FOR_LOCATION
             startLocationUpdates()
@@ -589,15 +589,20 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val grade = if (o.researchGrade) "Identification confirmed by the community" else null
         tvMeta.text = listOfNotNull(seen, o.place, grade).joinToString("\n")
         tvMeta.visibility = if (tvMeta.text.isEmpty()) View.GONE else View.VISIBLE
-        tvCredit.text = o.photoCredit?.let { "Photo $it" }.orEmpty()
+        val photo = o.photos.first()
+        tvCredit.text = photo.credit?.let { "Photo $it" }.orEmpty()
         tvCredit.visibility = if (tvCredit.text.isEmpty()) View.GONE else View.VISIBLE
 
-        ivPhoto.load(o.photoUrl) {
+        tvPhotoCount.text = "${o.photos.size} photos"
+        tvPhotoCount.visibility = if (o.photos.size > 1) View.VISIBLE else View.GONE
+
+        ivPhoto.load(photo.url) {
             crossfade(true)
             placeholder(ColorDrawable(ContextCompat.getColor(this@MainActivity, R.color.chip)))
             error(ColorDrawable(ContextCompat.getColor(this@MainActivity, R.color.chip)))
             listener(onError = { _, _ ->
-                if (target?.key == o.key && o.photoLargeUrl != o.photoUrl) ivPhoto.load(o.photoLargeUrl)
+                val fallback = photo.fullUrls.lastOrNull { it != photo.url }
+                if (target?.key == o.key && fallback != null) ivPhoto.load(fallback)
             })
         }
 
@@ -814,6 +819,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private companion object {
+        const val REQUEST_LOCATION = 1
+        const val REQUEST_NOTIFICATIONS = 2
+        const val KOFI_URL = "https://ko-fi.com/unpiloted0852"
         const val DRIVING_SPEED_MPS = 4f
         const val ALIGNED_DEGREES = 12f
         const val ARRIVED_METERS = 8f

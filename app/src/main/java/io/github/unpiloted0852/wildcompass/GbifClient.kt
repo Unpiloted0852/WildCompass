@@ -15,6 +15,7 @@ import java.util.Locale
  */
 object GbifClient {
     private const val LIMIT = 300
+    private const val MAX_PHOTOS = 12
     private const val INATURALIST_DATASET = "50c9509d-22c7-4a22-a47d-8c48425ef4a7"
     private const val MAX_DATASETS = 40
     private const val MAX_UNCERTAINTY_METERS = 500.0
@@ -109,22 +110,28 @@ object GbifClient {
         val withheld = o.str("informationWithheld")?.lowercase().orEmpty()
         if ("coordinate" in withheld || "obscur" in withheld || "location" in withheld) return null
 
-        val media = o.optJSONArray("media") ?: return null
-        var photo: JSONObject? = null
-        for (i in 0 until media.length()) {
-            val m = media.getJSONObject(i)
-            if (m.optString("type") == "StillImage" && m.str("identifier")?.startsWith("http") == true) {
-                photo = m
-                break
-            }
-        }
-        if (photo == null) return null
-        val original = photo.str("identifier")!!
         val key = o.optLong("key")
+        val photos = ArrayList<Photo>()
+        val media = o.optJSONArray("media") ?: return null
+        for (i in 0 until media.length()) {
+            if (photos.size >= MAX_PHOTOS) break
+            val m = media.getJSONObject(i)
+            val original = m.str("identifier") ?: continue
+            if (m.optString("type") != "StillImage" || !original.startsWith("http")) continue
+            // GBIF's image cache serves any publisher's photo at a sensible size.
+            val cached = "https://api.gbif.org/v1/image/cache/800x/occurrence/$key/media/${md5(original)}"
+            val holder = m.str("rightsHolder") ?: m.str("creator") ?: o.str("recordedBy")
+            val license = licenseName(m.str("license") ?: o.str("license"))
+            photos.add(
+                Photo(
+                    url = cached,
+                    fullUrls = listOf(original, cached),
+                    credit = listOfNotNull(holder?.let { "© $it" }, license).joinToString(", ").ifEmpty { null },
+                )
+            )
+        }
+        if (photos.isEmpty()) return null
         val gbifPage = "https://www.gbif.org/occurrence/$key"
-
-        val holder = photo.str("rightsHolder") ?: photo.str("creator") ?: o.str("recordedBy")
-        val license = licenseName(photo.str("license") ?: o.str("license"))
         val publisher = (o.str("institutionCode") ?: o.str("datasetName"))?.takeIf { it.length <= 28 }
 
         return Observation(
@@ -134,10 +141,7 @@ object GbifClient {
             lon = lon,
             commonName = null,
             scientificName = o.str("species") ?: o.str("acceptedScientificName") ?: o.str("scientificName"),
-            // GBIF's image cache serves any publisher's photo at a sensible size.
-            photoUrl = "https://api.gbif.org/v1/image/cache/800x/occurrence/$key/media/${md5(original)}",
-            photoLargeUrl = original,
-            photoCredit = listOfNotNull(holder?.let { "© $it" }, license).joinToString(", ").ifEmpty { null },
+            photos = photos,
             observedOn = o.str("eventDate")?.take(10)?.takeIf { DATE.matches(it) },
             observer = o.str("recordedBy"),
             place = listOfNotNull(o.str("locality"), o.str("stateProvince")).firstOrNull(),

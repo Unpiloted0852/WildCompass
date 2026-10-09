@@ -8,6 +8,8 @@ original record.
 
 **[Download the latest APK](https://github.com/Unpiloted0852/WildCompass/releases/latest)**
 
+Coffee: https://ko-fi.com/unpiloted0852
+
 ## What it does
 
 - Finds the nearest photographed observation on [iNaturalist](https://www.inaturalist.org) and
@@ -17,7 +19,8 @@ original record.
   shells, plants, fungi; and any time, past year, past month or past week.
 - **Next** moves on to the next-nearest record, **Back** returns.
 - **Open record** opens the original observation page; **Map** opens the spot in a maps app.
-- Tap the photo to see it full screen.
+- Tap the photo to see it full screen: pinch or double-tap to zoom, swipe for the record's
+  other photos.
 
 ## Things worth knowing
 
@@ -49,7 +52,9 @@ left unsigned.
 
 The app checks this repository's GitHub Releases at launch. If a newer version is published,
 an "Update available" pill appears at the top; one tap downloads the APK and hands it to
-Android's installer. To ship an update: bump `versionCode` and `versionName`, build a release
+Android's installer. The update closes the app; on Android 10 and later the system does not
+let an app reopen itself, so a notification offers to open it again (Android 9 and earlier
+reopen directly). To ship an update: bump `versionCode` and `versionName`, build a release
 APK signed with the same key, and publish a GitHub release tagged `v<versionName>` with the
 APK attached.
 

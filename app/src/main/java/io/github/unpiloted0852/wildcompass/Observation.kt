@@ -12,11 +12,8 @@ data class Observation(
     val lon: Double,
     val commonName: String?,
     val scientificName: String?,
-    /** Card-sized photo. */
-    val photoUrl: String,
-    /** Larger photo for the full-screen view; also the fallback when [photoUrl] fails. */
-    val photoLargeUrl: String,
-    val photoCredit: String?,
+    /** Every photo attached to the record, at least one, in the record's own order. */
+    val photos: List<Photo>,
     /** ISO date (yyyy-MM-dd) when known. */
     val observedOn: String?,
     val observer: String?,
@@ -45,6 +42,14 @@ data class Observation(
         return out[1]
     }
 }
+
+class Photo(
+    /** Card-sized rendition. */
+    val url: String,
+    /** Renditions for the full-screen view, best first; later ones are fallbacks. */
+    val fullUrls: List<String>,
+    val credit: String?,
+)
 
 /** One answer from a source: [complete] means nothing inside the asked radius was left out. */
 class Page(val items: List<Observation>, val complete: Boolean)
