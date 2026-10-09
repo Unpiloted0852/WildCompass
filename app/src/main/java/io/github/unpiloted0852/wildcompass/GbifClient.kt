@@ -118,6 +118,8 @@ object GbifClient {
             val m = media.getJSONObject(i)
             val original = m.str("identifier") ?: continue
             if (m.optString("type") != "StillImage" || !original.startsWith("http")) continue
+            // Sound recordings come with a spectrogram image, which is not a photo.
+            if ("xeno-canto.org" in original || "spectrogram" in original) continue
             // GBIF's image cache serves any publisher's photo at a sensible size.
             val cached = "https://api.gbif.org/v1/image/cache/800x/occurrence/$key/media/${md5(original)}"
             val holder = m.str("rightsHolder") ?: m.str("creator") ?: o.str("recordedBy")
@@ -125,7 +127,7 @@ object GbifClient {
             photos.add(
                 Photo(
                     url = cached,
-                    fullUrls = listOf(original, cached),
+                    fullUrls = listOf(fullSize(original), original, cached).distinct(),
                     credit = listOfNotNull(holder?.let { "© $it" }, license).joinToString(", ").ifEmpty { null },
                 )
             )
@@ -150,6 +152,12 @@ object GbifClient {
             gbifSpeciesKey = if (o.has("speciesKey")) o.optLong("speciesKey") else null,
         )
     }
+
+    /** Some publishers list a reduced rendition; this is the full-size file where one is known. */
+    private fun fullSize(url: String): String =
+        // The Atlas of Living Australia's image server, used by several national atlases.
+        url.replace("/image/proxyImageThumbnailLarge?", "/image/proxyImage?")
+            .replace("/image/proxyImageThumbnail?", "/image/proxyImage?")
 
     private val DATE = Regex("""\d{4}-\d{2}-\d{2}""")
 

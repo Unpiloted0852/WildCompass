@@ -600,7 +600,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             crossfade(true)
             placeholder(ColorDrawable(ContextCompat.getColor(this@MainActivity, R.color.chip)))
             error(ColorDrawable(ContextCompat.getColor(this@MainActivity, R.color.chip)))
-            listener(onError = { _, _ ->
+            listener(
+                onSuccess = { _, result -> PhotoViewer.rememberCardCopy(photo.url, result.memoryCacheKey) },
+                onError = { _, _ ->
                 val fallback = photo.fullUrls.lastOrNull { it != photo.url }
                 if (target?.key == o.key && fallback != null) ivPhoto.load(fallback)
             })

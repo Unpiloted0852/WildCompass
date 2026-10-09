@@ -13,6 +13,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import coil.load
+import coil.memory.MemoryCache
+import coil.size.Precision
 import coil.size.Scale
 
 /**
@@ -21,8 +23,20 @@ import coil.size.Scale
  */
 object PhotoViewer {
 
-    /** Enough pixels to be worth zooming into without loading a 50-megapixel original whole. */
-    private const val MAX_PIXELS = 2560
+    /**
+     * The full-screen view loads the original file, not a reduced rendition, so that zooming
+     * in shows real detail. iNaturalist keeps originals up to 2048 px on the long side; other
+     * publishers' originals can be far larger, and those are scaled to at most this many
+     * pixels a side so that one photo cannot use up the phone's memory.
+     */
+    private const val MAX_PIXELS = 4096
+
+    /** Where Coil keeps each card-sized photo, to show it at once while the original loads. */
+    private val cardCopies = HashMap<String, MemoryCache.Key>()
+
+    fun rememberCardCopy(url: String, key: MemoryCache.Key?) {
+        if (key != null) cardCopies[url] = key
+    }
 
     fun show(activity: Activity, photos: List<Photo>, title: String) {
         if (photos.isEmpty()) return
@@ -90,18 +104,22 @@ object PhotoViewer {
         }
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
-            loadFirstThatWorks(holder.image, photos[position].fullUrls, 0)
+            loadFirstThatWorks(holder.image, photos[position], 0)
         }
 
-        private fun loadFirstThatWorks(image: ZoomImageView, urls: List<String>, index: Int) {
+        private fun loadFirstThatWorks(image: ZoomImageView, photo: Photo, index: Int) {
+            val urls = photo.fullUrls
             image.load(urls[index]) {
+                placeholderMemoryCacheKey(cardCopies[photo.url])
                 size(MAX_PIXELS)
                 scale(Scale.FIT)
+                // Never enlarge: a smaller original is shown with exactly the pixels it has.
+                precision(Precision.INEXACT)
                 // A zoomed picture is moved with a matrix, which hardware bitmaps handle too,
                 // but very large ones can exceed the texture limit on older phones.
                 allowHardware(false)
                 listener(onError = { _, _ ->
-                    if (index + 1 < urls.size) loadFirstThatWorks(image, urls, index + 1)
+                    if (index + 1 < urls.size) loadFirstThatWorks(image, photo, index + 1)
                 })
             }
         }
