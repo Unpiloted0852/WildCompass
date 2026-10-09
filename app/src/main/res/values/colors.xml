@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_top">#0C1410</color>
+    <color name="bg_bottom">#15261D</color>
+    <color name="card">#1C2B23</color>
+    <color name="accent">#7BD389</color>
+    <color name="on_accent">#0C1410</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B9C9BF</color>
+    <color name="chip">#24362C</color>
+    <color name="arrow_idle">#5A6A60</color>
+    <color name="warn">#FFD166</color>
+    <color name="ic_launcher_background">#15261D</color>
+</resources>

@@ -1,0 +1,13 @@
+<resources>
+    <!-- The app is dark in both system themes, like a compass you read outdoors. -->
+    <style name="Theme.WildCompass" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorOnPrimary">@color/on_accent</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="colorSurface">@color/card</item>
+        <item name="android:colorBackground">@color/bg_top</item>
+        <item name="android:windowBackground">@drawable/bg_gradient</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">WildCompass</string>
+    <string name="settings">Settings</string>
+    <string name="back">‹ Back</string>
+    <string name="next">Next ›</string>
+    <string name="open_record">Open record</string>
+    <string name="map">Map</string>
+    <string name="photo_description">Photo of the observation. Tap to enlarge.</string>
+    <string name="about_text">WildCompass points to the nearest wildlife observation that someone has shared, with a photo, on iNaturalist or through GBIF (the Global Biodiversity Information Facility).\n\nObservation data: iNaturalist (inaturalist.org) and GBIF (gbif.org) and the datasets they publish. Each photo belongs to its photographer and is shown under the licence named beneath it. Open the record to see the full details and credit.\n\nA record marks where something was seen once, not where it is now. Locations can be off by tens of metres, and records whose location was deliberately hidden to protect a species are left out.\n\nPlease keep your distance from wildlife, stay on paths where asked to, and respect private property.\n\nThis app is not affiliated with iNaturalist or GBIF.</string>
+</resources>
