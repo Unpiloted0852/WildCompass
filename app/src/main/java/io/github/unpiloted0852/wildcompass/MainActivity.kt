@@ -49,14 +49,20 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.asin
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 class MainActivity : AppCompatActivity(), SensorEventListener {
 
@@ -124,6 +130,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var arrowRotation = 0f
     private var lastArrowUpdate = 0L
     private var lastPulse = 0L
+    private var lastFixTime = 0L
+    private var driveAnimJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // The app is dark in both system themes, so the bar icons must always be light.
@@ -392,9 +400,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         if (!hasLocationPermission() || locationCallback != null) return
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
-            .setMinUpdateIntervalMillis(1000)
-            .build()
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000).build()
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { onNewLocation(it) }
@@ -418,7 +424,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun onNewLocation(loc: Location) {
         here = loc
+        lastFixTime = System.currentTimeMillis()
         updateDeclination(loc)
+
+        if (loc.speed > DRIVING_SPEED_MPS && loc.hasBearing()) {
+            // Driving: the GPS track bearing is steadier than the magnetometer in a vehicle,
+            // and it is already relative to true north, so no declination correction.
+            updateArrow(loc, loc.bearing)
+            startDrivingAnimation()
+            tvCompass.visibility = View.GONE
+        } else {
+            stopDrivingAnimation()
+        }
+
         when {
             state == State.WAITING_FOR_LOCATION -> newSearch()
             // The search began from a position that turned out to be far off; start over.
@@ -429,8 +447,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 render()
             }
         }
-        // Above walking pace the direction of travel is steadier than the magnetometer.
-        if (loc.hasBearing() && loc.speed > DRIVING_SPEED_MPS) updateArrow(loc.bearing)
     }
 
     /**
@@ -732,6 +748,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     override fun onPause() {
         super.onPause()
         sensorManager.unregisterListener(this)
+        stopDrivingAnimation()
         stopLocationUpdates()
     }
 
@@ -744,7 +761,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             return
         }
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
-        if ((here?.speed ?: 0f) > DRIVING_SPEED_MPS && here?.hasBearing() == true) return // GPS heading in charge
+        val loc = here
+        if (loc != null && loc.speed > DRIVING_SPEED_MPS && loc.hasBearing()) return // GPS heading in charge
 
         SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
         var axisX = SensorManager.AXIS_X
@@ -762,7 +780,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
         // The rotation vector is relative to magnetic north; bearings are relative to true north.
         val magneticAzimuth = (Math.toDegrees(orientationAngles[0].toDouble()) + 360).toFloat() % 360
-        updateArrow((magneticAzimuth + declinationDeg + 360) % 360)
+        loc?.let { updateArrow(it, (magneticAzimuth + declinationDeg + 360) % 360) }
         updateCompassWarning(event)
     }
 
@@ -788,8 +806,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
      * Turns the arrow toward the target with time-based exponential smoothing, and gives
      * a short pulse when it lines up with the top of the phone.
      */
-    private fun updateArrow(heading: Float) {
-        val loc = here ?: return
+    private fun updateArrow(loc: Location, heading: Float) {
         val t = target ?: return
         if (state != State.READY) return
         val wanted = (t.bearingFrom(loc) - heading + 720) % 360
@@ -820,6 +837,50 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Driving mode: dead-reckon between 1 Hz GPS fixes for a smooth arrow
+    // ------------------------------------------------------------------
+
+    private fun startDrivingAnimation() {
+        if (driveAnimJob?.isActive == true) return
+        driveAnimJob = lifecycleScope.launch {
+            while (isActive) {
+                val loc = here
+                if (loc != null && loc.speed > DRIVING_SPEED_MPS && loc.hasBearing() && lastFixTime > 0L) {
+                    val sinceFix = System.currentTimeMillis() - lastFixTime
+                    if (sinceFix < 2000) {
+                        updateArrow(projectLocation(loc, loc.speed, loc.bearing, sinceFix), loc.bearing)
+                    }
+                }
+                delay(33)
+            }
+        }
+    }
+
+    private fun stopDrivingAnimation() {
+        driveAnimJob?.cancel()
+        driveAnimJob = null
+    }
+
+    /** Where the phone should be [timeDiff] ms after [startLoc], holding its speed and bearing. */
+    private fun projectLocation(startLoc: Location, speed: Float, bearing: Float, timeDiff: Long): Location {
+        val angularDistance = speed * (timeDiff / 1000.0) / 6371000.0
+        val bearingRad = Math.toRadians(bearing.toDouble())
+        val latRad = Math.toRadians(startLoc.latitude)
+        val lonRad = Math.toRadians(startLoc.longitude)
+        val newLatRad = asin(
+            sin(latRad) * cos(angularDistance) + cos(latRad) * sin(angularDistance) * cos(bearingRad)
+        )
+        val newLonRad = lonRad + atan2(
+            sin(bearingRad) * sin(angularDistance) * cos(latRad),
+            cos(angularDistance) - sin(latRad) * sin(newLatRad)
+        )
+        return Location("predicted").apply {
+            latitude = Math.toDegrees(newLatRad)
+            longitude = Math.toDegrees(newLonRad)
+        }
+    }
+
     private fun setArrowActive(active: Boolean) {
         ivArrow.alpha = if (active) 1f else 0.35f
         ivArrow.setColorFilter(ContextCompat.getColor(this, if (active) R.color.accent else R.color.arrow_idle))
@@ -829,7 +890,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private companion object {
         const val REQUEST_LOCATION = 1
         const val KOFI_URL = "https://ko-fi.com/unpiloted0852"
-        const val DRIVING_SPEED_MPS = 4f
+        const val DRIVING_SPEED_MPS = 6.7f // ~24 km/h: switch to GPS heading
         const val ALIGNED_DEGREES = 12f
         const val ARRIVED_METERS = 8f
         const val SWITCH_MARGIN_METERS = 15f
