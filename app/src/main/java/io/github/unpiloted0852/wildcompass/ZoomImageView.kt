@@ -8,6 +8,7 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import androidx.appcompat.widget.AppCompatImageView
+import kotlin.math.abs
 
 /**
  * An image that fits the view and can be pinched, double-tapped and dragged to look closer.
@@ -63,14 +64,30 @@ class ZoomImageView(context: Context) : AppCompatImageView(context) {
         scaleType = ScaleType.MATRIX
     }
 
+    /**
+     * A sharper copy of the picture already on screen (same shape, more pixels) takes its
+     * place without disturbing the zoom or the spot being looked at. Zoom and position are
+     * kept relative to the fitted picture, not in pixels of the file, so nothing moves.
+     * A differently shaped picture is a different picture and starts over.
+     */
     override fun setImageDrawable(drawable: Drawable?) {
+        val before = aspect(this.drawable)
         super.setImageDrawable(drawable)
-        reset()
+        val after = aspect(drawable)
+        if (before != null && after != null && abs(before - after) > before * SAME_SHAPE_TOLERANCE) {
+            resetZoom()
+        } else {
+            update()
+        }
     }
+
+    private fun aspect(d: Drawable?): Float? =
+        if (d == null || d.intrinsicWidth <= 0 || d.intrinsicHeight <= 0) null
+        else d.intrinsicWidth.toFloat() / d.intrinsicHeight
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        reset()
+        resetZoom()
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -81,7 +98,8 @@ class ZoomImageView(context: Context) : AppCompatImageView(context) {
         return true
     }
 
-    private fun reset() {
+    /** Back to the whole picture, fitted to the view. */
+    fun resetZoom() {
         zoom = 1f
         panX = 0f
         panY = 0f
@@ -123,5 +141,6 @@ class ZoomImageView(context: Context) : AppCompatImageView(context) {
     private companion object {
         const val MAX_ZOOM = 6f
         const val DOUBLE_TAP_ZOOM = 2.5f
+        const val SAME_SHAPE_TOLERANCE = 0.03f
     }
 }

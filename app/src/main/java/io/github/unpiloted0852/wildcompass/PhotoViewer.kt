@@ -5,13 +5,17 @@ import android.app.Dialog
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
+import coil.imageLoader
 import coil.load
 import coil.memory.MemoryCache
 import coil.size.Precision
@@ -91,26 +95,84 @@ object PhotoViewer {
         private val onTap: () -> Unit,
     ) : RecyclerView.Adapter<Pages.Holder>() {
 
-        class Holder(val image: ZoomImageView) : RecyclerView.ViewHolder(image)
+        class Holder(
+            root: FrameLayout,
+            val image: ZoomImageView,
+            /** Shown in the middle while there is nothing to look at yet. */
+            val spinner: ProgressBar,
+            /** Shown at the top while a sharper copy replaces the one on screen. */
+            val sharpening: View,
+            val message: TextView,
+        ) : RecyclerView.ViewHolder(root) {
+            var photo: Photo? = null
+        }
 
         override fun getItemCount() = photos.size
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
-            val image = ZoomImageView(parent.context)
-            image.layoutParams = ViewGroup.LayoutParams(MATCH, MATCH)
-            image.contentDescription = "Photo. Pinch or double-tap to zoom, tap to close."
-            image.onTap = onTap
-            return Holder(image)
+            val context = parent.context
+            val density = context.resources.displayMetrics.density
+            val image = ZoomImageView(context).apply {
+                contentDescription = "Photo. Pinch or double-tap to zoom, tap to close."
+                onTap = this@Pages.onTap
+            }
+            val spinner = ProgressBar(context)
+            val small = (18 * density).toInt()
+            val sharpening = LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundResource(R.drawable.bg_badge)
+                setPadding((12 * density).toInt(), (6 * density).toInt(), (14 * density).toInt(), (6 * density).toInt())
+                addView(ProgressBar(context), LinearLayout.LayoutParams(small, small))
+                addView(
+                    TextView(context).apply {
+                        setTextColor(Color.WHITE)
+                        textSize = 13f
+                        text = "Loading full resolution…"
+                        setPadding((8 * density).toInt(), 0, 0, 0)
+                    }
+                )
+            }
+            val message = TextView(context).apply {
+                setTextColor(Color.WHITE)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                text = "This photo could not be loaded."
+            }
+            val root = FrameLayout(context).apply {
+                layoutParams = ViewGroup.LayoutParams(MATCH, MATCH)
+                addView(image, FrameLayout.LayoutParams(MATCH, MATCH))
+                addView(spinner, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+                addView(
+                    sharpening,
+                    FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                        topMargin = (56 * density).toInt()
+                    }
+                )
+                addView(message, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER))
+            }
+            return Holder(root, image, spinner, sharpening, message)
         }
 
         override fun onBindViewHolder(holder: Holder, position: Int) {
-            loadFirstThatWorks(holder.image, photos[position], 0)
+            val photo = photos[position]
+            holder.photo = photo
+            holder.image.setImageDrawable(null)
+            holder.image.resetZoom()
+            holder.message.visibility = View.GONE
+
+            // The card's copy, if it is still in memory, goes up at once; either way a
+            // spinner shows that the original is on its way.
+            val cardCopy = cardCopies[photo.url]
+                ?.takeIf { holder.image.context.imageLoader.memoryCache?.get(it) != null }
+            holder.spinner.visibility = if (cardCopy == null) View.VISIBLE else View.GONE
+            holder.sharpening.visibility = if (cardCopy == null) View.GONE else View.VISIBLE
+            loadFirstThatWorks(holder, photo, cardCopy, 0)
         }
 
-        private fun loadFirstThatWorks(image: ZoomImageView, photo: Photo, index: Int) {
+        private fun loadFirstThatWorks(holder: Holder, photo: Photo, cardCopy: MemoryCache.Key?, index: Int) {
             val urls = photo.fullUrls
-            image.load(urls[index]) {
-                placeholderMemoryCacheKey(cardCopies[photo.url])
+            holder.image.load(urls[index]) {
+                placeholderMemoryCacheKey(cardCopy)
                 size(MAX_PIXELS)
                 scale(Scale.FIT)
                 // Never enlarge: a smaller original is shown with exactly the pixels it has.
@@ -118,9 +180,26 @@ object PhotoViewer {
                 // A zoomed picture is moved with a matrix, which hardware bitmaps handle too,
                 // but very large ones can exceed the texture limit on older phones.
                 allowHardware(false)
-                listener(onError = { _, _ ->
-                    if (index + 1 < urls.size) loadFirstThatWorks(image, photo, index + 1)
-                })
+                listener(
+                    onSuccess = { _, _ ->
+                        if (holder.photo === photo) {
+                            holder.spinner.visibility = View.GONE
+                            holder.sharpening.visibility = View.GONE
+                        }
+                    },
+                    onError = { _, _ ->
+                        if (holder.photo === photo) {
+                            if (index + 1 < urls.size) {
+                                loadFirstThatWorks(holder, photo, cardCopy, index + 1)
+                            } else {
+                                holder.spinner.visibility = View.GONE
+                                holder.sharpening.visibility = View.GONE
+                                // With the card's copy on screen there is still a photo to look at.
+                                if (cardCopy == null) holder.message.visibility = View.VISIBLE
+                            }
+                        }
+                    }
+                )
             }
         }
     }

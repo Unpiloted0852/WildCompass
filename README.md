@@ -52,9 +52,8 @@ left unsigned.
 
 The app checks this repository's GitHub Releases at launch. If a newer version is published,
 an "Update available" pill appears at the top; one tap downloads the APK and hands it to
-Android's installer. The update closes the app; on Android 10 and later the system does not
-let an app reopen itself, so a notification offers to open it again (Android 9 and earlier
-reopen directly). To ship an update: bump `versionCode` and `versionName`, build a release
+Android's installer. The update closes the app, and Android does not let an app reopen
+itself, so it is opened again by hand. To ship an update: bump `versionCode` and `versionName`, build a release
 APK signed with the same key, and publish a GitHub release tagged `v<versionName>` with the
 APK attached.
 

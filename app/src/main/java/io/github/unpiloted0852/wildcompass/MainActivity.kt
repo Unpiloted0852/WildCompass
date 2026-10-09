@@ -71,7 +71,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private val updater by lazy { AppUpdater(this) }
     private lateinit var tvUpdate: TextView
-    private var askedForNotifications = false
     private lateinit var chipRow: LinearLayout
     private lateinit var btnRecency: TextView
     private lateinit var viewRing: View
@@ -88,6 +87,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var tvSci: TextView
     private lateinit var tvBadge: TextView
     private lateinit var tvPhotoCount: TextView
+    private lateinit var photoProgress: ProgressBar
     private lateinit var tvMeta: TextView
     private lateinit var tvCredit: TextView
 
@@ -159,18 +159,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             tvUpdate.visibility = View.VISIBLE
             tvUpdate.setOnClickListener {
                 if (busy) return@setOnClickListener
-                // The update closes the app, and Android only lets it offer to reopen through
-                // a notification. Ask once; the update goes ahead on the next tap either way.
-                if (UpdateReceiver.needsNotification && !UpdateReceiver.canNotify(this@MainActivity) &&
-                    !askedForNotifications
-                ) {
-                    askedForNotifications = true
-                    ActivityCompat.requestPermissions(
-                        this@MainActivity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS
-                    )
-                    tvUpdate.text = "Tap again to install v${release.versionName}."
-                    return@setOnClickListener
-                }
                 busy = true
                 lifecycleScope.launch {
                     val error = updater.downloadAndInstall(release) { pct ->
@@ -232,6 +220,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         tvSci = findViewById(R.id.tvSci)
         tvBadge = findViewById(R.id.tvBadge)
         tvPhotoCount = findViewById(R.id.tvPhotoCount)
+        photoProgress = findViewById(R.id.photoProgress)
         tvMeta = findViewById(R.id.tvMeta)
         tvCredit = findViewById(R.id.tvCredit)
 
@@ -391,7 +380,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQUEST_LOCATION) return
         if (hasLocationPermission()) {
             state = State.WAITING_FOR_LOCATION
             startLocationUpdates()
@@ -596,16 +584,30 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         tvPhotoCount.text = "${o.photos.size} photos"
         tvPhotoCount.visibility = if (o.photos.size > 1) View.VISIBLE else View.GONE
 
+        photoProgress.visibility = View.VISIBLE
         ivPhoto.load(photo.url) {
             crossfade(true)
             placeholder(ColorDrawable(ContextCompat.getColor(this@MainActivity, R.color.chip)))
             error(ColorDrawable(ContextCompat.getColor(this@MainActivity, R.color.chip)))
             listener(
-                onSuccess = { _, result -> PhotoViewer.rememberCardCopy(photo.url, result.memoryCacheKey) },
+                onSuccess = { _, result ->
+                    PhotoViewer.rememberCardCopy(photo.url, result.memoryCacheKey)
+                    if (target?.key == o.key) photoProgress.visibility = View.GONE
+                },
                 onError = { _, _ ->
-                val fallback = photo.fullUrls.lastOrNull { it != photo.url }
-                if (target?.key == o.key && fallback != null) ivPhoto.load(fallback)
-            })
+                    val fallback = photo.fullUrls.lastOrNull { it != photo.url }
+                    if (target?.key == o.key && fallback != null) {
+                        ivPhoto.load(fallback) {
+                            listener(
+                                onSuccess = { _, _ -> hidePhotoProgress(o) },
+                                onError = { _, _ -> hidePhotoProgress(o) }
+                            )
+                        }
+                    } else {
+                        hidePhotoProgress(o)
+                    }
+                }
+            )
         }
 
         // GBIF records carry only the scientific name; look the everyday one up once.
@@ -627,6 +629,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 }
             }
         }
+    }
+
+    private fun hidePhotoProgress(o: Observation) {
+        if (target?.key == o.key) photoProgress.visibility = View.GONE
     }
 
     private fun applyCommonName(o: Observation, name: String?) {
@@ -822,7 +828,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private companion object {
         const val REQUEST_LOCATION = 1
-        const val REQUEST_NOTIFICATIONS = 2
         const val KOFI_URL = "https://ko-fi.com/unpiloted0852"
         const val DRIVING_SPEED_MPS = 4f
         const val ALIGNED_DEGREES = 12f

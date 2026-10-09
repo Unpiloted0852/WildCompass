@@ -31,7 +31,8 @@ import java.util.concurrent.TimeUnit
  * Android still owns the final step: the first update shows the system
  * "update this app?" dialog (and, once, the "allow installs from this app"
  * setting). On Android 12+ later updates may install without that dialog.
- * The update replaces the running app, which closes it; [UpdateReceiver] brings it back.
+ * The update replaces the running app, which closes it. Android (10 and later) does not
+ * let an app open itself from the background, so the user reopens it by hand.
  * An update only installs over a build signed with the same key as the
  * release APK, so a debug build cannot update itself this way.
  */
@@ -129,9 +130,6 @@ class AppUpdater(private val activity: Activity) {
                     val callback = PendingIntent.getBroadcast(
                         activity, sessionId, Intent(action).setPackage(activity.packageName), flags
                     )
-                    // The update kills this process; UpdateReceiver in the new version reads
-                    // this to know the update was asked for from inside the app.
-                    UpdateReceiver.expectUpdate(activity)
                     session.commit(callback.intentSender)
                     committed = true
                 }
