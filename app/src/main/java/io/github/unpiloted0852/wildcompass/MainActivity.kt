@@ -117,7 +117,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var searchJob: Job? = null
     private var searchCenter: Location? = null
     private var searchingFrom: Location? = null
-    private var nearestAtSearchMeters = 0f
+    private var exactRadiusMeters = 0f
     private var lastSearchTime = 0L
     private val commonNames = HashMap<Long, String?>()
 
@@ -445,25 +445,35 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             state == State.WAITING_FOR_LOCATION -> newSearch()
             // The search began from a position that turned out to be far off; start over.
             state == State.SEARCHING && (searchingFrom?.distanceTo(loc) ?: 0f) > FAR_MOVE_METERS -> newSearch()
-            state == State.READY && movedEnoughToSearchAgain(loc) -> search(keepSkipped = true)
             else -> {
+                // Every fix: what is nearest to here, now? First among what is already
+                // known, then by asking again if something closer could be missing.
                 retarget()
                 render()
+                if (state == State.READY && shouldAskAgain(loc)) search(keepSkipped = true)
             }
         }
     }
 
     /**
-     * The answer was exact where it was asked. Ask again once the phone has moved a fair
-     * share of the way to the nearest record (something closer may now exist), but not
-     * more often than every [MIN_SEARCH_INTERVAL_MS] unless it has moved a long way.
+     * Whether the databases need asking again to be sure of what is nearest to [loc].
+     *
+     * The last answer holds every record within [exactRadiusMeters] of where it was asked.
+     * The record now shown as nearest is certainly the nearest while it lies inside that
+     * circle with room to spare: nothing closer can be outside it. Once that stops being
+     * true, ask again -- but only after moving a little (standing still changes nothing),
+     * never while an answer is still on its way, and not more often than every
+     * [MIN_SEARCH_INTERVAL_MS], out of consideration for the free servers.
      */
-    private fun movedEnoughToSearchAgain(loc: Location): Boolean {
+    private fun shouldAskAgain(loc: Location): Boolean {
+        if (searchJob?.isActive == true) return false
         val center = searchCenter ?: return true
         val moved = loc.distanceTo(center)
         if (moved > FAR_MOVE_METERS) return true
+        if (moved < MIN_MOVE_METERS) return false
         if (SystemClock.elapsedRealtime() - lastSearchTime < MIN_SEARCH_INTERVAL_MS) return false
-        return moved > maxOf(MIN_MOVE_METERS, nearestAtSearchMeters * 0.5f)
+        val nearest = pool.minOfOrNull { it.distanceFrom(loc) } ?: return true
+        return moved + nearest > exactRadiusMeters
     }
 
     private fun updateDeclination(loc: Location) {
@@ -504,9 +514,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             if (useINaturalist) add(Source.INATURALIST)
             if (useGbif) add(Source.GBIF)
         }
+        // A refresh starts from a circle twice as wide as the nearest known record is far: in
+        // most places that is one small request per source, and it leaves room to keep
+        // walking before the next one is needed.
+        val startKm = if (keepSkipped && pool.isNotEmpty()) {
+            (pool.minOf { it.distanceFrom(loc) } * 2 / 1000.0).coerceIn(MIN_REFRESH_RADIUS_KM, 1.0)
+        } else {
+            1.0
+        }
         searchJob = lifecycleScope.launch {
             val result = try {
-                NearestFinder.find(loc.latitude, loc.longitude, group, recency, sources, researchOnly)
+                NearestFinder.find(loc.latitude, loc.longitude, group, recency, sources, researchOnly, startKm)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -522,27 +540,25 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             pool = result.observations
             failedSources = result.failed
             searchCenter = loc
-            nearestAtSearchMeters = pool.firstOrNull()?.distanceFrom(loc) ?: 0f
+            exactRadiusMeters = result.exactRadiusMeters
             state = State.READY
             retarget()
             render()
         }
     }
 
-    /** Points at the nearest record that has not been skipped. */
+    /** Points at the record nearest to where the phone is now, leaving out skipped ones. */
     private fun retarget() {
         val loc = here ?: return
         val nearest = pool.asSequence().filter { it.key !in skipped }.minByOrNull { it.distanceFrom(loc) }
         val current = target?.takeIf { cur -> cur.key !in skipped && pool.any { it.key == cur.key } }
-        // Stay with the current target unless another is clearly closer, so that two
-        // records at similar distances do not swap back and forth with GPS jitter.
+        // A few metres' grace only, so two records at the same distance do not swap back
+        // and forth with every wobble of the GPS.
         val next = when {
             nearest == null -> null
             current == null -> nearest
-            else -> {
-                val d = current.distanceFrom(loc)
-                if (nearest.distanceFrom(loc) < d - maxOf(SWITCH_MARGIN_METERS, d * 0.2f)) nearest else current
-            }
+            nearest.distanceFrom(loc) < current.distanceFrom(loc) - SWITCH_MARGIN_METERS -> nearest
+            else -> current
         }
         if (next?.key != target?.key) {
             target = next
@@ -897,9 +913,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         const val DRIVING_SPEED_MPS = 6.7f // ~24 km/h: switch to GPS heading
         const val ALIGNED_DEGREES = 12f
         const val ARRIVED_METERS = 8f
-        const val SWITCH_MARGIN_METERS = 15f
-        const val MIN_MOVE_METERS = 100f
-        const val MIN_SEARCH_INTERVAL_MS = 20_000L
+        const val SWITCH_MARGIN_METERS = 3f
+        const val MIN_MOVE_METERS = 15f
+        const val MIN_SEARCH_INTERVAL_MS = 8_000L
+        const val MIN_REFRESH_RADIUS_KM = 0.1
         const val FAR_MOVE_METERS = 1000f
         const val MAX_LAST_LOCATION_AGE_MS = 10 * 60 * 1000L
     }
